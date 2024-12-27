@@ -1,14 +1,19 @@
 #pragma once
 #pragma once
 
-#include<chrono>
+#include <chrono>
 #include <fstream>
 #include <vector>
 #include <iostream>
 #include <string>
 #include <random>
+#include <map>
+#include <optional>
+#include <set>
 
+//#include <Windows.h>
 #include "raylib.h"
+
 //#include "chip8_clock.h"
 
 
@@ -29,13 +34,14 @@ private:
 	uint8_t delay_timer{};			//delay timer
 	uint8_t sound_timer{};			//sound timer
 	uint16_t current_opcode{};
-
 	//Clock clock;
 
-	static inline const unsigned fontset_size = 16 * 5;
-	uint8_t font[fontset_size] =
+	static inline const uint8_t font_count = 16;
+	static inline const uint8_t font_width = 5;
+	static inline const uint8_t fontset_size = font_count * font_width; //16 characters, each 5 rows tall
+	const uint8_t font[fontset_size] =
 	{
-		0xF0, 0x90, 0x90, 0x90, 0xF0,// 0
+		0xF0, 0x90, 0x90, 0x90, 0xF0,// 0  
 		0x20, 0x60, 0x20, 0x20, 0x70,// 1
 		0xF0, 0x10, 0xF0, 0x80, 0xF0,// 2
 		0xF0, 0x10, 0xF0, 0x10, 0xF0,// 3
@@ -53,9 +59,23 @@ private:
 		0xF0, 0x80, 0xF0, 0x80, 0x80 // F
 	};
 
-	//for OP_CXNN
-	static inline std::uniform_int_distribution<int> distribution{ 0,255 };		//0 to 255 covers all 8 bit numbers
-	static inline std::default_random_engine generator{ std::random_device{}() };	//pseudo_random generator with random seed value (seeding happens at the very first call, after that prng is called)
+	const std::map<uint8_t, KeyboardKey> key_to_raykey
+	{
+		{1, KEY_ONE}, {2, KEY_TWO}, {3, KEY_THREE}, {0xC, KEY_FOUR},
+		{4, KEY_Q},   {5, KEY_W},   {6, KEY_E},     {0xD, KEY_R},
+		{7, KEY_A},   {8, KEY_S},   {9, KEY_D},     {0xE, KEY_F},
+		{0xA, KEY_Z}, {0, KEY_X},   {0xB, KEY_C},   {0xF, KEY_V}
+	};
+
+	const std::map<KeyboardKey, uint8_t> raykey_to_key
+	{
+		{KEY_ONE, 1}, {KEY_TWO, 2}, {KEY_THREE, 3}, {KEY_FOUR, 0xC},
+		{KEY_Q, 4},   {KEY_W, 5},   {KEY_E, 6},     {KEY_R, 0xD},
+		{KEY_A, 7},   {KEY_S, 8},   {KEY_D, 9},     {KEY_F, 0xE},
+		{KEY_Z, 0xA}, {KEY_X, 0},   {KEY_C, 0xB},   {KEY_V, 0xF}
+	};
+
+	
 
 public:
 	Chip8();
@@ -92,10 +112,15 @@ public:
 	void OP_BNNN();
 	void OP_CXNN();
 	void OP_DXYN();
+	void OP_EXA1();
+	void OP_EX9E();
 	void OP_FX1E();
+	void OP_FX07();
+	void OP_FX15();
+	void OP_FX18();
+	void OP_FX0A();
+	void OP_FX29();
 	void OP_FX33();
 	void OP_FX55();
 	void OP_FX65();
-
-
 };
