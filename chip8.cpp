@@ -33,19 +33,9 @@ void Chip8::increment_pc()
 	pc += 2;					//increment pc by 2 before executing instructions.
 }
 
-/************************************TEST STUFF**************************************/
-
-int run_count{ 1 };
-std::fstream log_draw("C:\\Users\\anees\\Desktop\\log_updateScreen_46.txt", std::fstream::out);
-
-std::chrono::high_resolution_clock clock_;
-
-/************************************TEST STUFF**************************************/
 
 void Chip8::update_screen()
 {
-	auto start = clock_.now();
-
 	// create an image the same size as the window for us to draw too
 	Image imageBuffer = GenImageColor(columns*upscale_factor, rows*upscale_factor, BLACK);
 
@@ -75,8 +65,6 @@ void Chip8::update_screen()
 	DrawTexture(displayTexture, 0, 0, WHITE);
 
 	EndDrawing();
-	log_draw << std::chrono::duration_cast<std::chrono::microseconds>(clock_.now() - start) << std::endl;
-
 }
 
 uint16_t Chip8::get_opcode()
