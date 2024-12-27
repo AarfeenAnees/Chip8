@@ -1,5 +1,5 @@
 #include "chip8.h"
-
+#include <cmath>
 
 Color off = DARKPURPLE;
 Color on = ORANGE;
@@ -35,8 +35,8 @@ void Chip8::increment_pc()
 
 /************************************TEST STUFF**************************************/
 
-int run_count{1};
-std::fstream log_draw("C:\\Users\\anees\\Desktop\\log_updateScreen.txt", std::fstream::out);
+int run_count{ 1 };
+std::fstream log_draw("C:\\Users\\anees\\Desktop\\log_updateScreen_46.txt", std::fstream::out);
 
 std::chrono::high_resolution_clock clock_;
 
@@ -44,41 +44,58 @@ std::chrono::high_resolution_clock clock_;
 
 void Chip8::update_screen()
 {
+	auto start = clock_.now();
 
-	log_draw << "RUN NUMBER" << run_count << "\n";
+	// create an image the same size as the window for us to draw too
+	Image imageBuffer = GenImageColor(columns*upscale_factor, rows*upscale_factor, BLACK);
 
-	if (!IsWindowReady())
-	{
-		std::cerr << "Window Is Not Open!";
-		std::terminate();
-	}
-
-	BeginDrawing();
-
-	ClearBackground(off);
-	
+	// make a texture that matches the format and size of the image
+	Texture displayTexture = LoadTextureFromImage(imageBuffer);
 
 	for (int i = 0; i < rows; i++)	  //32 rows i.e i [0,32) and represents y
 	{
 		for (int j = 0; j < columns; j++)  //64 columns i.e j [0,64) and represents x
 		{
 			Color pixel_state = ((display[i] >> j) & 0b1) ? on : off;     //extracts j'th bit from last
-			DrawRectangle((columns - (j + 1)) * upscale_factor, i * upscale_factor, upscale_factor, upscale_factor, pixel_state);
-			
+			ImageDrawRectangle(&imageBuffer, (columns - (j + 1)) * upscale_factor, i * upscale_factor, upscale_factor, upscale_factor, pixel_state);
+		
 		}
 	}
-	
-	auto start = clock_.now();
+
+	UpdateTexture(displayTexture, imageBuffer.data);
+
+	BeginDrawing();
+
+	if (delay_timer) delay_timer--;
+	if (sound_timer) sound_timer--;
+
+	ClearBackground(WHITE);
+
+	// display the texture from the GPU to the screen
+	DrawTexture(displayTexture, 0, 0, WHITE);
+
 	EndDrawing();
-	while (std::chrono::duration_cast<std::chrono::microseconds>(clock_.now() - start) < std::chrono::microseconds{ 2000 }) {}
-	log_draw << "End Drawing :" << std::chrono::duration_cast<std::chrono::microseconds>(clock_.now() - start) << "\n" << std::endl;
-	++run_count;
+	log_draw << std::chrono::duration_cast<std::chrono::microseconds>(clock_.now() - start) << std::endl;
+
 }
 
 uint16_t Chip8::get_opcode()
 {
 	return current_opcode;
 }
+
+
+/*
+[1] [2] [3] [4]						0x2   0x3   0x4   0x5						1 2 3 C
+[Q] [W] [E] [R]   ==SCANCODES==>	0x10  0x11  0x12  0x13   ==CHIP8_KEYS==>	4 5 6 D
+[A] [S] [D] [F]						0x1E  0x1F  0x20  0x21						7 8 9 E
+[Z] [X] [C] [V]                     0x2C  0x2D  0x2E  0x2F						A 0 B F
+
+But this wouldn't be needed, as raylibs keys are physical keys!
+
+*/
+
+
 
 //Clock& Chip8::getClock()
 //{
@@ -111,21 +128,21 @@ void Chip8::OP_3XNN()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t nn = (current_opcode & 0x00ff);
-	registers[vx] == nn ? pc += 2 : NULL;
+	if (registers[vx] == nn) pc += 2;
 }
 
 void Chip8::OP_4XNN()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t nn = (current_opcode & 0x00ff);
-	registers[vx] != nn ? pc += 2 : NULL;
+	if (!(registers[vx] == nn)) pc += 2; 
 }
 
 void Chip8::OP_5XY0()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0);
-	registers[vx] == registers[vy] ? pc += 2 : NULL;
+	if (registers[vx] == registers[vy]) pc += 2;
 }
 
 void Chip8::OP_6XNN()
@@ -152,7 +169,6 @@ void Chip8::OP_8XY1()
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	registers[vx] |= registers[vy];
-
 }
 
 void Chip8::OP_8XY2()
@@ -160,6 +176,7 @@ void Chip8::OP_8XY2()
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	registers[vx] &= registers[vy];
+
 }
 
 void Chip8::OP_8XY3()
@@ -167,13 +184,18 @@ void Chip8::OP_8XY3()
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	registers[vx] ^= registers[vy];
+
 }
 
 void Chip8::OP_8XY4()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
-	registers[vx] + registers[vy] > 255 ? registers[0xF] = 1 : registers[15] = 0; //VF aka carry flag set to 1 if VX+VY causes overflow, else set to 0
+
+	uint16_t sum = registers[vx] + registers[vy];
+	constexpr uint8_t max = std::numeric_limits<uint8_t>::max(); //255
+
+	registers[0xF] = sum > max ? 1 : 0; //VF aka carry flag set to 1 if VX+VY causes overflow, else set to 0
 	registers[vx] += registers[vy];
 }
 
@@ -181,7 +203,7 @@ void Chip8::OP_8XY5()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
-	registers[vx] > registers[vy] ? registers[0xF] = 1 : registers[15] = 0; //VF set to 1 if minuend (right operand) is larger, else 0 if subtrahend is larger
+	registers[0xF] = (registers[vx] > registers[vy] ? 1 : 0 ); //VF set to 1 if minuend (right operand) is larger, else 0 if subtrahend is larger
 	registers[vx] = registers[vx] - registers[vy];
 }
 
@@ -198,7 +220,7 @@ void Chip8::OP_8XY7()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
-	registers[vx] > registers[vy] ? registers[15] = 1 : registers[15] = 0; //VF set to 1 if minuend (right operand) is larger, else 0 if subtrahend is larger
+	registers[0xF] = (registers[vx] < registers[vy] ? 1 : 0); //VF set to 1 if minuend (right operand) is larger, else 0 if subtrahend is larger
 	registers[vx] = registers[vy] - registers[vx];
 }
 
@@ -228,55 +250,136 @@ void Chip8::OP_BNNN()
 	pc = (current_opcode & 0x0fff) + registers[0];
 }
 
+
+//for OP_CXNN
+std::uniform_int_distribution<int> distribution{ 0,255 };		    //0 to 255 covers all 8 bit numbers
+std::default_random_engine generator{ std::random_device{}() };	//pseudo_random generator with random seed value (seeding happens at the very first call, after that prng is called)
 void Chip8::OP_CXNN()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t nn = (current_opcode & 0x00ff);
 
-	registers[vx] = nn & static_cast<uint8_t>(distribution(generator));
+	registers[vx] = nn & distribution(generator);
 }
 
 void Chip8::OP_DXYN()
 {
 
 	//coordinate x,y of (left) corner bit of sprite
-	uint8_t x = registers[(current_opcode & 0x0f00) >> 8] % columns;			//X
-	uint8_t y = registers[(current_opcode & 0x00f0) >> 4] % rows;				//Y
-	uint8_t sprite_height = current_opcode & 0x000f;							//N
+	uint8_t x = registers[(current_opcode & 0x0f00) >> 8] % columns;			   //X
+	uint8_t y = registers[(current_opcode & 0x00f0) >> 4] % rows;				   //Y
+	uint8_t sprite_height = current_opcode & 0x000f;							   //N
 
-	registers[15] = 0;															//set VF = 0 if no pixels have been turned off (start with this assumption)
+	registers[0xF] = 0;															   //set VF = 0 if no pixels have been turned off (start with this assumption)
 
-	for (uint8_t row = y; row < y + sprite_height; row++)
+	for (uint8_t row_offset = 0; row_offset < sprite_height; row_offset++)
 	{
-		if (row >= rows) break;													//clipping condition for height.
-		uint64_t display_row = display[row];
-		uint64_t sprite_row = static_cast<uint64_t>(memory[index]);				//fetch the 8 bit sprite, and place it on 64 bit long row (sprite first bit at 56th bit)        
-		sprite_row = (x >= 56) ? sprite_row >> (x - 56) : sprite_row << (56 - x);                  //sprite occupies 56th to 64th bit. Move it to xth place on the row. Also comes with width clipping as bonus.
+		if (y + row_offset >= rows) break;										   //clipping vertically
 
-		if (!(display_row & (display_row ^ sprite_row))) registers[15] = 1;	//set VF = 1 if display pixel has been turned off  
-		display[row] = display_row ^ sprite_row;
-		index++;																//move to the next 8 bits.
+		uint64_t display_row = display[y + row_offset];
+		uint64_t sprite_row = static_cast<uint64_t>(memory[index + row_offset]);   //fetch 8 bits from the sprite, and place it on 64 bit long row (sprite first bit at 56th bit)
+
+		sprite_row = (x >= 56) ? sprite_row >> (x - 56) : sprite_row << (56 - x);  //sprite currently occupies 56th to 64th bit. Move it to xth place on the row. Also comes with width clipping as bonus.
+
+
+		if (display_row & sprite_row) registers[0xF] = 1;	                       //set VF = 1 if display pixel has been turned off  
+		display[y + row_offset] = display_row ^ sprite_row;
 	}
-
-
 }
 
 void Chip8::OP_FX1E()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+
+	if (index > 0 && registers[vx] > std::numeric_limits<uint32_t>::max() - index) //if index + VX overflows
+	{
+		registers[0xF] = 1;
+		/*
+		Unlike other arithmetic instructions, this did not affect VF on overflow on the original COSMAC VIP. 
+		However, it seems that some interpreters set VF to 1 if I “overflows” from 0FFF to above 1000 (outside the normal addressing range). 
+		This wasn’t the case on the original COSMAC VIP, at least, but apparently the CHIP-8 interpreter for Amiga behaved this way. 
+		At least one known game, Spacefight 2091!, relies on this behavior. 
+		I don’t know of any games that rely on this not happening, so perhaps it’s safe to do it like the Amiga interpreter did.
+		*/
+	}
+
 	index += registers[vx];
+}
+
+void Chip8::OP_EXA1()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	uint8_t vx_key = registers[vx];
+	auto it = key_to_raykey.find(vx_key);
+	if (it != key_to_raykey.end() && !IsKeyDown(it->second))
+	{
+		pc += 2; //skip the next instruction
+	}
+}
+
+void Chip8::OP_EX9E()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	uint8_t vx_key = registers[vx];
+	auto it = key_to_raykey.find(vx_key);
+	if (it != key_to_raykey.end() && IsKeyDown(it->second))
+	{
+		pc += 2; //skip the next instruction
+	}
+}
+
+void Chip8::OP_FX07()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	registers[vx] = delay_timer;
+}
+
+void Chip8::OP_FX15()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	delay_timer = registers[vx];
+}
+
+void Chip8::OP_FX18()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	sound_timer = registers[vx];
+}
+
+void Chip8::OP_FX0A()
+{
+	uint8_t vx = (current_opcode & 0x0F00) >> 8;
+	KeyboardKey pressed_key = static_cast<KeyboardKey>(GetKeyPressed());
+
+	// Check if the pressed key maps to a valid CHIP-8 key
+	auto it = raykey_to_key.find(pressed_key);
+	if (it != raykey_to_key.end())
+	{
+		registers[vx] = it->second; // Assign the corresponding CHIP-8 key value
+		return;
+	}
+
+	pc -= 2; // Repeat the instruction if no valid key is pressed
+}
+
+
+void Chip8::OP_FX29()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	uint8_t font_character = registers[vx];
+	uint8_t font_start = 0x50;				//fonts are present starting from memory location 0x50, each occupying 5 bytes.
+	index = font_start + (font_width * font_character);
 }
 
 void Chip8::OP_FX33()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-
-	uint8_t value = registers[vx];
+	uint8_t number = registers[vx];
 
 	for (int i = 2; i >= 0; i--)
 	{
-		memory[index + i] = value % 10;
-		value /= 10;
+		memory[index + i] = number % 10;
+		number /= 10;
 	}
 }
 
@@ -284,24 +387,21 @@ void Chip8::OP_FX55()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 
-	for (int i = 0; i <= vx; i++)
+	for (uint8_t i = 0; i <= vx; i++)
 	{
 		memory[index++] = registers[i];
 	}
-	//index is index+vx+1 now
 }
 
 void Chip8::OP_FX65()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 
-	for (int i = 0; i <= vx; i++)
+	for (uint8_t i = 0; i <= vx; i++)
 	{
 		registers[i] = memory[index++];
 	}
-	//index is index+vx+1 now
 }
-
 
 void Chip8::load_rom(const char* rom_path)
 {
@@ -310,7 +410,7 @@ void Chip8::load_rom(const char* rom_path)
 	if (rom.is_open())
 	{
 
-		std::streampos size{ rom.tellg() };				//tellg returns the "distance" of file pointer's current position (which is currently at the end) from start in bytes
+		std::streampos size{ rom.tellg() };				    //tellg returns the "distance" of file pointer's current position (which is currently at the end) from start in bytes
 		rom.seekg(0, std::ios::beg);						//Reset to the beginning of the file
 		std::vector<char> buffer(size);						//buffer to read contents of rom. vector prefered over dynamic raw array due to RAII
 
