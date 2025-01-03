@@ -224,7 +224,7 @@ void Chip8::OP_8XYE()
 void Chip8::OP_9XY0()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	uint8_t vy = (current_opcode & 0x00f0);
+	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	registers[vx] != registers[vy] ? pc += 2 : NULL;
 }
 
