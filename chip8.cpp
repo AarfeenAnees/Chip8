@@ -1,5 +1,5 @@
 #include "chip8.h"
-#include <cmath>
+#include <algorithm>
 
 Color off = DARKPURPLE;
 Color on = ORANGE;
@@ -33,9 +33,19 @@ void Chip8::increment_pc()
 	pc += 2;					//increment pc by 2 before executing instructions.
 }
 
+/************************************TEST STUFF**************************************/
+
+int run_count{ 1 };
+std::fstream log_draw("C:\\Users\\anees\\Desktop\\log_updateScreen_46.txt", std::fstream::out);
+
+std::chrono::high_resolution_clock clock_;
+
+/************************************TEST STUFF**************************************/
 
 void Chip8::update_screen()
 {
+	auto start = clock_.now();
+
 	// create an image the same size as the window for us to draw too
 	Image imageBuffer = GenImageColor(columns*upscale_factor, rows*upscale_factor, BLACK);
 
@@ -65,6 +75,8 @@ void Chip8::update_screen()
 	DrawTexture(displayTexture, 0, 0, WHITE);
 
 	EndDrawing();
+	log_draw << std::chrono::duration_cast<std::chrono::microseconds>(clock_.now() - start) << std::endl;
+
 }
 
 uint16_t Chip8::get_opcode()
@@ -123,13 +135,13 @@ void Chip8::OP_4XNN()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t nn = (current_opcode & 0x00ff);
-	if (!(registers[vx] == nn)) pc += 2; 
+	if (registers[vx] != nn) pc += 2; 
 }
 
 void Chip8::OP_5XY0()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	uint8_t vy = (current_opcode & 0x00f0);
+	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	if (registers[vx] == registers[vy]) pc += 2;
 }
 
@@ -164,7 +176,6 @@ void Chip8::OP_8XY2()
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	registers[vx] &= registers[vy];
-
 }
 
 void Chip8::OP_8XY3()
@@ -172,7 +183,6 @@ void Chip8::OP_8XY3()
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	registers[vx] ^= registers[vy];
-
 }
 
 void Chip8::OP_8XY4()
@@ -192,7 +202,7 @@ void Chip8::OP_8XY5()
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
 	registers[0xF] = (registers[vx] > registers[vy] ? 1 : 0 ); //VF set to 1 if minuend (right operand) is larger, else 0 if subtrahend is larger
-	registers[vx] = registers[vx] - registers[vy];
+	registers[vx] -= registers[vy];
 }
 
 void Chip8::OP_8XY6()
@@ -225,7 +235,7 @@ void Chip8::OP_9XY0()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
-	registers[vx] != registers[vy] ? pc += 2 : NULL;
+	if(registers[vx] != registers[vy]) pc += 2;
 }
 
 void Chip8::OP_ANNN()
@@ -257,64 +267,67 @@ void Chip8::OP_DXYN()
 	uint8_t x = registers[(current_opcode & 0x0f00) >> 8] % columns;			   //X
 	uint8_t y = registers[(current_opcode & 0x00f0) >> 4] % rows;				   //Y
 	uint8_t sprite_height = current_opcode & 0x000f;							   //N
+	
 
 	registers[0xF] = 0;															   //set VF = 0 if no pixels have been turned off (start with this assumption)
 
 	for (uint8_t row_offset = 0; row_offset < sprite_height; row_offset++)
 	{
-		if (y + row_offset >= rows) break;										   //clipping vertically
+		uint8_t row = y + row_offset;
+		if (row == rows) break;										   //clipping vertically
 
-		uint64_t display_row = display[y + row_offset];
+		uint64_t display_row = display[row];
 		uint64_t sprite_row = static_cast<uint64_t>(memory[index + row_offset]);   //fetch 8 bits from the sprite, and place it on 64 bit long row (sprite first bit at 56th bit)
 
-		sprite_row = (x >= 56) ? sprite_row >> (x - 56) : sprite_row << (56 - x);  //sprite currently occupies 56th to 64th bit. Move it to xth place on the row. Also comes with width clipping as bonus.
-
+		sprite_row = (x >= 56) ? (sprite_row >> (x - 56)) : (sprite_row << (56 - x));  //sprite currently occupies 56th to 64th bit. Move it to xth place on the row. Also comes with width clipping as bonus.
 
 		if (display_row & sprite_row) registers[0xF] = 1;	                       //set VF = 1 if display pixel has been turned off  
-		display[y + row_offset] = display_row ^ sprite_row;
+		display[row] = display_row ^ sprite_row;
 	}
 }
+
 
 void Chip8::OP_FX1E()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 
-	if (index > 0 && registers[vx] > std::numeric_limits<uint32_t>::max() - index) //if index + VX overflows
-	{
-		registers[0xF] = 1;
-		/*
-		Unlike other arithmetic instructions, this did not affect VF on overflow on the original COSMAC VIP. 
-		However, it seems that some interpreters set VF to 1 if I “overflows” from 0FFF to above 1000 (outside the normal addressing range). 
-		This wasn’t the case on the original COSMAC VIP, at least, but apparently the CHIP-8 interpreter for Amiga behaved this way. 
-		At least one known game, Spacefight 2091!, relies on this behavior. 
-		I don’t know of any games that rely on this not happening, so perhaps it’s safe to do it like the Amiga interpreter did.
-		*/
-	}
+	//if (index > 0 && registers[vx] > std::numeric_limits<uint32_t>::max() - index) //if index + VX overflows
+	//{
+	//	registers[0xF] = 1;
+	//	/*
+	//	Unlike other arithmetic instructions, this did not affect VF on overflow on the original COSMAC VIP. 
+	//	However, it seems that some interpreters set VF to 1 if I “overflows” from 0FFF to above 1000 (outside the normal addressing range). 
+	//	This wasn’t the case on the original COSMAC VIP, at least, but apparently the CHIP-8 interpreter for Amiga behaved this way. 
+	//	At least one known game, Spacefight 2091!, relies on this behavior. 
+	//	I don’t know of any games that rely on this not happening, so perhaps it’s safe to do it like the Amiga interpreter did.
+	//	*/
+	//}
 
 	index += registers[vx];
 }
 
 void Chip8::OP_EXA1()
 {
+	update_keystates();
+
+
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	uint8_t vx_key = registers[vx];
-	auto it = key_to_raykey.find(vx_key);
-	if (it != key_to_raykey.end() && !IsKeyDown(it->second))
-	{
-		pc += 2; //skip the next instruction
-	}
+	uint8_t key_requested = registers[vx];
+
+	if (keystates[key_requested] == false) pc += 2;
+	
 }
 
 void Chip8::OP_EX9E()
 {
+	update_keystates();
+
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	uint8_t vx_key = registers[vx];
-	auto it = key_to_raykey.find(vx_key);
-	if (it != key_to_raykey.end() && IsKeyDown(it->second))
-	{
-		pc += 2; //skip the next instruction
-	}
+	uint8_t key_requested = registers[vx];
+	
+	if (keystates[key_requested] == true) pc += 2;
 }
+
 
 void Chip8::OP_FX07()
 {
@@ -336,18 +349,21 @@ void Chip8::OP_FX18()
 
 void Chip8::OP_FX0A()
 {
-	uint8_t vx = (current_opcode & 0x0F00) >> 8;
-	KeyboardKey pressed_key = static_cast<KeyboardKey>(GetKeyPressed());
+	update_keystates();
 
-	// Check if the pressed key maps to a valid CHIP-8 key
-	auto it = raykey_to_key.find(pressed_key);
-	if (it != raykey_to_key.end())
+	uint8_t vx = (current_opcode & 0x0F00) >> 8;
+
+	for (const auto& key_pressed : keystates)
 	{
-		registers[vx] = it->second; // Assign the corresponding CHIP-8 key value
-		return;
+		if (key_pressed == true)
+		{
+			registers[vx] = key_pressed;
+			return;
+		}
 	}
 
 	pc -= 2; // Repeat the instruction if no valid key is pressed
+	
 }
 
 
@@ -417,4 +433,19 @@ void Chip8::load_rom(const char* rom_path)
 	}
 
 	//rom.close();											redundant as destructor closes the file at end of scope
+}
+
+void Chip8::update_keystates()
+{
+	for (const auto& [key, raykey] : key_to_raykey)
+	{
+		if (IsKeyDown(raykey))
+		{
+			keystates[key] = 1;
+		}
+		else if (IsKeyUp(raykey))
+		{
+			keystates[key] = 0;
+		}
+	}
 }
