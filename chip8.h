@@ -10,7 +10,7 @@
 #include <map>
 #include <optional>
 #include <set>
-
+#include <array>
 //#include <Windows.h>
 #include "raylib.h"
 
@@ -66,14 +66,8 @@ private:
 		{7, KEY_A},   {8, KEY_S},   {9, KEY_D},     {0xE, KEY_F},
 		{0xA, KEY_Z}, {0, KEY_X},   {0xB, KEY_C},   {0xF, KEY_V}
 	};
-
-	const std::map<KeyboardKey, uint8_t> raykey_to_key
-	{
-		{KEY_ONE, 1}, {KEY_TWO, 2}, {KEY_THREE, 3}, {KEY_FOUR, 0xC},
-		{KEY_Q, 4},   {KEY_W, 5},   {KEY_E, 6},     {KEY_R, 0xD},
-		{KEY_A, 7},   {KEY_S, 8},   {KEY_D, 9},     {KEY_F, 0xE},
-		{KEY_Z, 0xA}, {KEY_X, 0},   {KEY_C, 0xB},   {KEY_V, 0xF}
-	};
+	std::array<bool, 16> keystates{};
+	void update_keystates();
 
 	
 
