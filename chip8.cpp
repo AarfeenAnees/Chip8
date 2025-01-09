@@ -148,13 +148,15 @@ void Chip8::OP_5XY0()
 void Chip8::OP_6XNN()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	registers[vx] = current_opcode & 0x00ff;									//VX = NN
+	uint8_t nn = (current_opcode & 0x00ff);
+	registers[vx] = nn;									//VX = NN
 }
 
 void Chip8::OP_7XNN()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	registers[vx] += current_opcode & 0x00ff;									//VX += NN
+	uint8_t nn = (current_opcode & 0x00ff);
+	registers[vx] += nn;									//VX += NN
 }
 
 void Chip8::OP_8XY0()
@@ -194,14 +196,15 @@ void Chip8::OP_8XY4()
 	constexpr uint8_t max = std::numeric_limits<uint8_t>::max(); //255
 
 	registers[0xF] = sum > max ? 1 : 0; //VF aka carry flag set to 1 if VX+VY causes overflow, else set to 0
-	registers[vx] += registers[vy];
+	registers[vx] = sum;
 }
 
 void Chip8::OP_8XY5()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
-	registers[0xF] = (registers[vx] > registers[vy] ? 1 : 0 ); //VF set to 1 if minuend (right operand) is larger, else 0 if subtrahend is larger
+
+	registers[0xF] = (registers[vx] > registers[vy] ? 1 : 0 ); //VF set to 1 if minuend (left operand) is larger, else 0 if subtrahend is larger
 	registers[vx] -= registers[vy];
 }
 
@@ -209,6 +212,7 @@ void Chip8::OP_8XY6()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
+
 	registers[vx] = registers[vy];				//set vX to vY
 	registers[0xF] = registers[vx] & 0x01;		//... -(2) and set vF to the shifted out bit
 	registers[vx] >>= 1;						//    -(1) shift VX to the right by one bit  ...
@@ -218,6 +222,7 @@ void Chip8::OP_8XY7()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
+
 	registers[0xF] = (registers[vx] < registers[vy] ? 1 : 0); //VF set to 1 if minuend (right operand) is larger, else 0 if subtrahend is larger
 	registers[vx] = registers[vy] - registers[vx];
 }
@@ -226,6 +231,7 @@ void Chip8::OP_8XYE()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
+
 	registers[vx] = registers[vy];						//set vX to vY
 	registers[0xF] = (registers[vx] >> 7) & 0x01;		//... -(2) and set vF to the shifted out bit
 	registers[vx] <<= 1;								//    -(1) shift VX to the left by one bit  ...
@@ -235,17 +241,20 @@ void Chip8::OP_9XY0()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
 	uint8_t vy = (current_opcode & 0x00f0) >> 4;
+
 	if(registers[vx] != registers[vy]) pc += 2;
 }
 
 void Chip8::OP_ANNN()
 {
-	index = current_opcode & 0x0fff;											//index = NNN
+	uint16_t address = current_opcode & 0x0fff;
+	index = address;											//index = NNN
 }
 
 void Chip8::OP_BNNN()
 {
-	pc = (current_opcode & 0x0fff) + registers[0];
+	uint16_t address = current_opcode & 0x0fff;
+	pc = address + registers[0];
 }
 
 
@@ -277,15 +286,75 @@ void Chip8::OP_DXYN()
 		if (row == rows) break;										   //clipping vertically
 
 		uint64_t display_row = display[row];
-		uint64_t sprite_row = static_cast<uint64_t>(memory[index + row_offset]);   //fetch 8 bits from the sprite, and place it on 64 bit long row (sprite first bit at 56th bit)
-
-		sprite_row = (x >= 56) ? (sprite_row >> (x - 56)) : (sprite_row << (56 - x));  //sprite currently occupies 56th to 64th bit. Move it to xth place on the row. Also comes with width clipping as bonus.
+		uint16_t sprite_byte = index + row_offset;
+		uint64_t sprite_row = (static_cast<uint64_t>(memory[sprite_byte]) << 56) >> x;   //fetch a byte from the sprite, and place the sprite on 64 bit long row
 
 		if (display_row & sprite_row) registers[0xF] = 1;	                       //set VF = 1 if display pixel has been turned off  
 		display[row] = display_row ^ sprite_row;
 	}
 }
 
+void Chip8::OP_EXA1()
+{
+	//update_keystates();
+
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	uint8_t key_requested = registers[vx] & 0xF;  //the lower-four bits represent the acceptable values (0 to 15). Masking them alone ensures we do not get anything outside this range.
+	
+
+	if (keystates[key_requested] == false) pc += 2;
+
+}
+
+void Chip8::OP_EX9E()
+{
+	//update_keystates();
+
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	uint8_t key_requested = registers[vx] & 0xF; //the lower-four bits represent the acceptable values (0 to 15). Masking them alone ensures we do not get anything outside this range.
+	
+
+	if (keystates[key_requested] == true) pc += 2;
+}
+
+
+void Chip8::OP_FX07()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	registers[vx] = delay_timer;
+}
+
+
+void Chip8::OP_FX0A()
+{
+	//update_keystates();
+
+	uint8_t vx = (current_opcode & 0x0F00) >> 8;
+
+	for (const auto& key_pressed : keystates)
+	{
+		if (key_pressed == true)
+		{
+			registers[vx] = key_pressed;
+			return;
+		}
+	}
+
+	pc -= 2; // Repeat the instruction if no valid key is pressed
+	
+}
+
+void Chip8::OP_FX15()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	delay_timer = registers[vx];
+}
+
+void Chip8::OP_FX18()
+{
+	uint8_t vx = (current_opcode & 0x0f00) >> 8;
+	sound_timer = registers[vx];
+}
 
 void Chip8::OP_FX1E()
 {
@@ -306,67 +375,6 @@ void Chip8::OP_FX1E()
 	index += registers[vx];
 }
 
-void Chip8::OP_EXA1()
-{
-	update_keystates();
-
-
-	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	uint8_t key_requested = registers[vx];
-
-	if (keystates[key_requested] == false) pc += 2;
-	
-}
-
-void Chip8::OP_EX9E()
-{
-	update_keystates();
-
-	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	uint8_t key_requested = registers[vx];
-	
-	if (keystates[key_requested] == true) pc += 2;
-}
-
-
-void Chip8::OP_FX07()
-{
-	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	registers[vx] = delay_timer;
-}
-
-void Chip8::OP_FX15()
-{
-	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	delay_timer = registers[vx];
-}
-
-void Chip8::OP_FX18()
-{
-	uint8_t vx = (current_opcode & 0x0f00) >> 8;
-	sound_timer = registers[vx];
-}
-
-void Chip8::OP_FX0A()
-{
-	update_keystates();
-
-	uint8_t vx = (current_opcode & 0x0F00) >> 8;
-
-	for (const auto& key_pressed : keystates)
-	{
-		if (key_pressed == true)
-		{
-			registers[vx] = key_pressed;
-			return;
-		}
-	}
-
-	pc -= 2; // Repeat the instruction if no valid key is pressed
-	
-}
-
-
 void Chip8::OP_FX29()
 {
 	uint8_t vx = (current_opcode & 0x0f00) >> 8;
@@ -382,6 +390,7 @@ void Chip8::OP_FX33()
 
 	for (int i = 2; i >= 0; i--)
 	{
+		if (index + i < 0 || index + i > 4095) continue; //skip any out of bound write attempts
 		memory[index + i] = number % 10;
 		number /= 10;
 	}
@@ -393,6 +402,7 @@ void Chip8::OP_FX55()
 
 	for (uint8_t i = 0; i <= vx; i++)
 	{
+		if (index < 0 || index > 4095) continue; //skip any out of bound write attempts
 		memory[index++] = registers[i];
 	}
 }
@@ -403,6 +413,7 @@ void Chip8::OP_FX65()
 
 	for (uint8_t i = 0; i <= vx; i++)
 	{
+		if (index < 0 || index > 4095) continue; //skip any out of bound write attempts
 		registers[i] = memory[index++];
 	}
 }
