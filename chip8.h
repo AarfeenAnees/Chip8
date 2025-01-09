@@ -67,7 +67,6 @@ private:
 		{0xA, KEY_Z}, {0, KEY_X},   {0xB, KEY_C},   {0xF, KEY_V}
 	};
 	std::array<bool, 16> keystates{};
-	void update_keystates();
 
 	
 
@@ -78,6 +77,7 @@ public:
 	uint16_t get_opcode();
 	//Clock& getClock();
 
+	void update_keystates();
 	void update_screen();
 	static inline const size_t rows = 32;
 	static inline const size_t columns = 64;
