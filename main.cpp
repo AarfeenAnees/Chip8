@@ -8,18 +8,19 @@
 int main()
 {
 	Chip8 chip8;
-	chip8.load_rom("A:\\C++\\Projects\\CHIP-8\\ROMs\\5-quirks.ch8");
+	chip8.load_rom("A:\\C++\\Projects\\CHIP-8\\ROMs\\AllinOne.ch8");
 
 	//SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(Chip8::columns * Chip8::upscale_factor, Chip8::rows * Chip8::upscale_factor, "CHIP-8");
 
 	size_t instruction_count{ 0 };
+	size_t ipf{ 11 };
 
 	SetTargetFPS(60);
 	while (WindowShouldClose() == false)
 	{
 		chip8.increment_pc(); //sets current_Opcode, and increments pc by 2
-
+		if(!instruction_count) chip8.update_keystates(); //set keystates once per frame, at the beginning of the frame
 		switch (chip8.get_opcode() & 0xf000) //extract the first nibble
 		{
 		case 0x0000:
@@ -143,6 +144,7 @@ int main()
 					break;
 				case 0x000A:
 					chip8.OP_FX0A();
+					instruction_count = 10;  //ensures one FX0A call per frame
 					break;
 				case 0x0029:
 					chip8.OP_FX29();
@@ -158,12 +160,13 @@ int main()
 		}
 
 
-		if (!(++instruction_count % /*Clock::instructions_per_frame*/ 11))
+		if (!(++instruction_count % /*Clock::instructions_per_frame*/ ipf))
 		{
+			instruction_count = 0;
 			chip8.update_screen();
 		}
 
-		
+		//if (instruction_count == 1100) break;
 
 	}
 
